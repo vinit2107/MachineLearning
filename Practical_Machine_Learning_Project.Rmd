@@ -1,0 +1,131 @@
+---
+title: "Practical_Machine_Learning_Project"
+author: "Vinit Deshbhratar"
+date: "19/12/2019"
+output: html_document
+---
+
+## Summary
+
+The dataset contains the quantifiable readings of the accelerometers. The aim of the project is to create a model which can identify whether the exercises performed by the person was correct or not. The target variable of the dataset has 10 categories which identifies the five correct and five incorrect exercises performed by the person.
+
+## Loading the libraries
+
+```{r, message=FALSE}
+library(dplyr)
+library(corrplot)
+library(caret)
+```
+
+## Loading the training and test dataset
+
+```{r}
+training = read.csv('pml-training.csv')
+testing = read.csv('pml-testing.csv')
+```
+## Data Description
+
+Dimensions of the dataset are:
+```{r}
+dim(training)
+```
+
+Columns names are:
+```{r}
+names(training)
+```
+
+## Feature Selection
+
+In order to go forward with feature selection, we need to determine how much data is missing in a particulare column. There is no point in imputing the values in a column if most of the data in the column is missing. Hence we will first determine which columns have sufficient amount of data.
+
+```{r}
+missing_values = c()
+for(col in names(training)){
+        missing_values = c(missing_values, sum(training[, col] == '' | is.na(training[, col]))/nrow(training))
+}
+missing_values_df = data.frame(names(training), Missing_Values = missing_values*100)
+```
+We have a dataframe which contains the amount of missing values in the column in percentage. The dataframe is as follows.
+
+```{r}
+head(missing_values_df)
+```
+We'll remove the columns which have missing values greater than 70%.
+
+```{r}
+missing_values_df = missing_values_df %>% filter(Missing_Values < 70)
+```
+Dimensions of the filtered dataframe are as follows:
+```{r}
+dim(missing_values_df)
+```
+So we have 60 columns that can be used for building a model. Selecting the columns that we have got from the training dataset.
+
+```{r}
+training = training[, as.character(missing_values_df$names.training.)]
+```
+We do not need the X, username and timestamp related columns for building the model. Hence dropping the columns.
+
+```{r}
+training = training[,  !names(training) %in% c('X', 'user_name', 'raw_timestamp_part_1', 'raw_timestamp_part_2', 'cvtd_timestamp', 'new_window')]
+```
+## Building a correlation matrix
+
+```{r}
+corr_mat = cor(training[-c(54)])
+corrplot(corr_mat, method = 'color', tl.cex = 0.5)
+```
+
+We can see from the correaltion plot that there are columns which are highly correalted, positively and negatively too. We need to filter out the columns which are contributing to it. Firstly setting the upper triangle to 0. And then setting the diagnonal of the matrix to 0.
+
+```{r}
+corr_mat[upper.tri(corr_mat)] = 0
+diag(corr_mat) = 0
+training = training[, !apply(corr_mat,2,function(x) any(x > 0.8))]
+```
+Checking the dimension of the dataframe after filtering out.
+
+```{r}
+dim(training)
+```
+
+# Building a model
+
+We'll try to build two models using the random forest, one using the cross-validation and the other not using the cross-validation.
+```{r}
+rf_fit = randomForest::randomForest(classe ~ ., data = training)
+
+rf_fit
+
+rf_fit_cv = train(classe~., method = 'rf', data = training, trControl = trainControl(method = 'cv', number = 3))
+```
+
+The expected out of sample error rate is 0.22%.
+```{r}
+rf_fit_cv
+```
+
+Here is the confusion matrix for the values in the training dataset and the values predicted from the training dataset. This is without using the cross-validation.
+
+```{r}
+confusionMatrix(training$classe, predict(rf_fit, training[-45]))
+```
+
+Here is the confusion matrix for the calues in the training dataset and the values predicted from the training dataset. The classifier has been created using the cross-validation.
+
+```{r}
+confusionMatrix(training$classe, predict(rf_fit_cv, training[-45]))
+```
+
+These are the values for the test dataset for the quiz.
+
+```{r}
+columns = names(training[-45])
+testing = testing[, columns]
+predict(rf_fit, testing)
+predict(rf_fit_cv, testing)
+```
+
+Both the models give the same output for the training as well as the test dataset.
+
